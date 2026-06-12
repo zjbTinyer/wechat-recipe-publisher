@@ -13,10 +13,12 @@ class Config:
     wechat_app_secret: str = ""
     log_level: str = "INFO"
     recipes_dir: str = "./recipes"
-    primary_scraper: str = "douguo"
+    primary_scraper: str = "juhe"
     recipe_category: str = "家常菜"
     # 公众号文章作者名（最多 16 字符）
     author_name: str = "每日家常菜"
+    # 聚合数据 API Key
+    juhe_api_key: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -41,7 +43,8 @@ class Config:
             wechat_app_secret=wechat_app_secret,
             log_level=os.environ.get("LOG_LEVEL", "INFO"),
             recipes_dir=os.environ.get("RECIPES_DIR", "./recipes"),
-            primary_scraper=os.environ.get("PRIMARY_SCRAPER", "douguo"),
+            primary_scraper=os.environ.get("PRIMARY_SCRAPER", "juhe"),
             recipe_category=os.environ.get("RECIPE_CATEGORY", "家常菜"),
             author_name=os.environ.get("AUTHOR_NAME", "每日家常菜"),
+            juhe_api_key=os.environ.get("JUHE_API_KEY", ""),
         )

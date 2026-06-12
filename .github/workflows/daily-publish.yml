@@ -52,7 +52,8 @@ jobs:
         env:
           WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
-          PRIMARY_SCRAPER: 'douguo'
+          JUHE_API_KEY: ${{ secrets.JUHE_API_KEY }}
+          PRIMARY_SCRAPER: 'juhe'
           RECIPE_CATEGORY: '家常菜'
         run: python src/main.py
 

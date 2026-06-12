@@ -39,6 +39,7 @@ def main():
         recipe = fetch_recipe(
             primary=config.primary_scraper,
             category=config.recipe_category,
+            juhe_api_key=config.juhe_api_key,
         )
     except Exception as e:
         logger.error(f"抓取食谱失败: {e}")
