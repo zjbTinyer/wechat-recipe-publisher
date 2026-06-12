@@ -7,6 +7,15 @@ on:
     - cron: '45 0 * * *'
   workflow_dispatch:
     # 允许手动触发测试
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/daily-publish.yml'
+
+# 确保 Actions 有写入权限
+permissions:
+  contents: read
+  actions: write
 
 env:
   PYTHONUNBUFFERED: '1'
@@ -15,6 +24,8 @@ env:
 jobs:
   publish-recipe:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     concurrency:
       group: recipe-publish
       cancel-in-progress: false
