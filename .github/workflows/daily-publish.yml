@@ -1,0 +1,56 @@
+name: 每日家常菜自动发布
+
+on:
+  schedule:
+    # 北京时间每天早上 08:45 (UTC 00:45)
+    # 选择 :45 而非 :00 是为了避开整点高峰期
+    - cron: '45 0 * * *'
+  workflow_dispatch:
+    # 允许手动触发测试
+
+env:
+  PYTHONUNBUFFERED: '1'
+  LOG_LEVEL: 'INFO'
+
+jobs:
+  publish-recipe:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: recipe-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 创建临时目录
+        run: mkdir -p recipes
+
+      - name: 运行发布脚本
+        env:
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+          PRIMARY_SCRAPER: 'douguo'
+          RECIPE_CATEGORY: '家常菜'
+        run: python src/main.py
+
+      - name: 上传失败日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-debug-logs
+          path: |
+            recipes/
+            *.log
+          retention-days: 7
