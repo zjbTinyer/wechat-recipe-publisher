@@ -90,30 +90,69 @@ class MeishichinaScraper(BaseScraper):
 
         # 食材
         ingredients = []
-        for li in soup.select("div.materials ul.ylist li, div.materials li"):
-            name_el = li.select_one("span.left, h4, b, .scname")
-            weight_el = li.select_one("span.right, i, .scnum")
-            if name_el:
-                name = name_el.get_text(strip=True)
-                weight = weight_el.get_text(strip=True) if weight_el else "适量"
-                if name:
-                    ingredients.append((name, weight))
+        ingredient_selectors = [
+            "div.materials ul.ylist li",
+            "div.materials li",
+            "div.ingredients li",
+            "table.ingredients tr",
+        ]
+        for sel in ingredient_selectors:
+            items = soup.select(sel)
+            if items:
+                for li in items:
+                    name_el = li.select_one("span.left, h4, b, .scname, td:first-child")
+                    weight_el = li.select_one("span.right, i, .scnum, td:last-child")
+                    if name_el:
+                        name = name_el.get_text(strip=True)
+                        weight = weight_el.get_text(strip=True) if weight_el else "适量"
+                        if name:
+                            ingredients.append((name, weight))
+                if ingredients:
+                    logger.info(f"[{self.SOURCE_NAME}] 食材选择器匹配: {sel} ({len(ingredients)} 项)")
+                    break
 
         # 步骤
         steps = []
         step_images = []
-        for li in soup.select("div.step_container ol li, div.recipe_step ol li"):
-            text_el = li.select_one("div.text, p, span")
-            img_el = li.select_one("img")
-            if text_el:
-                steps.append(text_el.get_text(strip=True))
-            if img_el:
-                img_src = img_el.get("data-src", "") or img_el.get("src", "")
-                if img_src and "blank" not in img_src:
-                    step_images.append(img_src)
+
+        # 尝试多种可能的步骤选择器
+        step_selectors = [
+            "div.step_container ol li",
+            "div.recipe_step ol li",
+            "div.steps ol li",
+            "div.step li",
+            "div.content ol li",
+            "div.article_content p",
+        ]
+
+        for selector in step_selectors:
+            items = soup.select(selector)
+            if items:
+                logger.info(f"[{self.SOURCE_NAME}] 步骤选择器匹配: {selector} ({len(items)} 项)")
+                for li in items:
+                    text_el = li.select_one("div.text, p, span")
+                    img_el = li.select_one("img")
+                    if text_el:
+                        text = text_el.get_text(strip=True)
+                        if text and len(text) > 3:
+                            steps.append(text)
+                    elif li.get_text(strip=True) and len(li.get_text(strip=True)) > 5:
+                        steps.append(li.get_text(strip=True))
+                    if img_el:
+                        img_src = img_el.get("data-src", "") or img_el.get("src", "")
+                        if img_src and "blank" not in img_src:
+                            step_images.append(img_src)
+                if steps:
+                    break
 
         if not steps:
-            logger.warning(f"[{self.SOURCE_NAME}] 未找到步骤")
+            # 诊断输出：列出页面中所有可能包含内容的 div
+            logger.warning(f"[{self.SOURCE_NAME}] 未找到步骤，输出页面结构诊断:")
+            for div in soup.select("div[class]"):
+                classes = " ".join(div.get("class", []))
+                text = div.get_text(strip=True)[:80]
+                if len(text) > 10:
+                    logger.info(f"  DIV.{classes}: {text}...")
             return None
 
         return Recipe(
