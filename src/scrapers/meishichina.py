@@ -65,94 +65,99 @@ class MeishichinaScraper(BaseScraper):
         return urls
 
     def parse_recipe_detail(self, url: str) -> Optional[Recipe]:
-        """解析食谱详情页"""
+        """解析食谱详情页
+
+        页面结构 (从 GitHub Actions 诊断确认):
+        - 步骤: div.recipeStep_word (每个 div 一步)
+        - 食材: div.subtitle (纯文本，需解析)
+        - 标题: h1 或 div.detail 内的标题
+        """
         logger.info(f"[{self.SOURCE_NAME}] 解析详情: {url}")
         resp = self._fetch_page(url)
+        # 强制设置编码为 UTF-8
+        resp.encoding = "utf-8"
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # 标题
-        title_el = soup.select_one("h1#recipe_title, h1.recipe_De_title, h1")
+        # ── 标题 ──
+        title_el = soup.select_one(
+            "h1#recipe_title, h1.recipe_De_title, "
+            "div.detail h1, div.recipe-title h1, h1"
+        )
         if not title_el:
             logger.warning(f"[{self.SOURCE_NAME}] 未找到标题元素")
             return None
         title = title_el.get_text(strip=True)
 
-        # 封面图（美食天下使用 data-src 延迟加载）
+        # ── 封面图 ──
         cover_url = ""
-        for sel in ["div.recipe_cover img#recipe_img",
-                     "div.recipe_cover img",
-                     ".recipe_cover img"]:
+        for sel in [
+            "div.recipe_cover img#recipe_img",
+            "div.recipe_cover img",
+            "div.detail img",
+            "div.recipe-show img",
+        ]:
             cover_el = soup.select_one(sel)
             if cover_el:
                 cover_url = cover_el.get("data-src", "") or cover_el.get("src", "")
-                if cover_url:
+                if cover_url and "logo" not in cover_url:
                     break
 
-        # 食材
+        # ── 食材 ──
+        # 从天诊断来看食材在 div.subtitle 中，格式如"辅食油菜2颗纯净水适量"
         ingredients = []
-        ingredient_selectors = [
-            "div.materials ul.ylist li",
-            "div.materials li",
-            "div.ingredients li",
-            "table.ingredients tr",
-        ]
-        for sel in ingredient_selectors:
-            items = soup.select(sel)
-            if items:
-                for li in items:
-                    name_el = li.select_one("span.left, h4, b, .scname, td:first-child")
-                    weight_el = li.select_one("span.right, i, .scnum, td:last-child")
-                    if name_el:
-                        name = name_el.get_text(strip=True)
-                        weight = weight_el.get_text(strip=True) if weight_el else "适量"
-                        if name:
-                            ingredients.append((name, weight))
-                if ingredients:
-                    logger.info(f"[{self.SOURCE_NAME}] 食材选择器匹配: {sel} ({len(ingredients)} 项)")
-                    break
+        subtitle = soup.select_one("div.subtitle")
+        if subtitle:
+            ingredient_text = subtitle.get_text(strip=True)
+            # 尝试按食材+用量模式拆分
+            # 常见的模式：食材名+数字/量词
+            import re
+            # 匹配"XX N颗/个/g/克/勺/适量"等模式
+            pattern = r'([^\d\s]+?)(\d+[颗个克gG升毫mMlL勺只条根片块]+\b|[适量少许]+)'
+            matches = re.findall(pattern, ingredient_text)
+            if matches:
+                for name, weight in matches:
+                    ingredients.append((name.strip(), weight.strip()))
+            # 如果正则匹配不到，按空格拆分当作列表
+            if not ingredients and ingredient_text:
+                parts = ingredient_text.replace("，", " ").replace(",", " ").split()
+                for part in parts:
+                    if part and len(part) > 1:
+                        ingredients.append((part, "适量"))
+            if ingredients:
+                logger.info(f"[{self.SOURCE_NAME}] 从 subtitle 解析到 {len(ingredients)} 种食材")
 
-        # 步骤
+        # 备选：从 mbox 中找食材
+        if not ingredients:
+            for mbox in soup.select("div.mbox"):
+                text = mbox.get_text(strip=True)
+                if any(kw in text for kw in ["食材", "主料", "配料", "调料"]):
+                    # 简单提取
+                    lines = [l.strip() for l in text.split() if l.strip() and len(l.strip()) > 2]
+                    for line in lines[:20]:
+                        if line and len(line) < 50:
+                            ingredients.append((line, "适量"))
+                    if ingredients:
+                        break
+
+        # ── 步骤 ──
+        # 从诊断确认: div.recipeStep_word 包含每一步
         steps = []
         step_images = []
-
-        # 尝试多种可能的步骤选择器
-        step_selectors = [
-            "div.step_container ol li",
-            "div.recipe_step ol li",
-            "div.steps ol li",
-            "div.step li",
-            "div.content ol li",
-            "div.article_content p",
-        ]
-
-        for selector in step_selectors:
-            items = soup.select(selector)
-            if items:
-                logger.info(f"[{self.SOURCE_NAME}] 步骤选择器匹配: {selector} ({len(items)} 项)")
-                for li in items:
-                    text_el = li.select_one("div.text, p, span")
-                    img_el = li.select_one("img")
-                    if text_el:
-                        text = text_el.get_text(strip=True)
-                        if text and len(text) > 3:
-                            steps.append(text)
-                    elif li.get_text(strip=True) and len(li.get_text(strip=True)) > 5:
-                        steps.append(li.get_text(strip=True))
-                    if img_el:
-                        img_src = img_el.get("data-src", "") or img_el.get("src", "")
-                        if img_src and "blank" not in img_src:
-                            step_images.append(img_src)
-                if steps:
-                    break
+        step_words = soup.select("div.recipeStep_word")
+        if step_words:
+            logger.info(f"[{self.SOURCE_NAME}] 步骤选择器匹配: div.recipeStep_word ({len(step_words)} 项)")
+            for sw in step_words:
+                text = sw.get_text(strip=True)
+                if text and len(text) > 3:
+                    steps.append(text)
+                img = sw.select_one("img")
+                if img:
+                    img_src = img.get("data-src", "") or img.get("src", "")
+                    if img_src and "blank" not in img_src:
+                        step_images.append(img_src)
 
         if not steps:
-            # 诊断输出：列出页面中所有可能包含内容的 div
-            logger.warning(f"[{self.SOURCE_NAME}] 未找到步骤，输出页面结构诊断:")
-            for div in soup.select("div[class]"):
-                classes = " ".join(div.get("class", []))
-                text = div.get_text(strip=True)[:80]
-                if len(text) > 10:
-                    logger.info(f"  DIV.{classes}: {text}...")
+            logger.warning(f"[{self.SOURCE_NAME}] 未找到步骤")
             return None
 
         return Recipe(
